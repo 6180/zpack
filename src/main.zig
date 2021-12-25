@@ -6,26 +6,26 @@ pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    var mps = try MsgpackStream.init(&gpa.allocator);
-    defer mps.deinit();
+    var zs = try ZpackStream.init(&gpa.allocator);
+    defer zs.deinit();
 
-    _ = try mps.packBool(true);
-    _ = try mps.packPosFixInt(0);
-    _ = try mps.packNegFixInt(23);
-    _ = try mps.packNil();
-    _ = try mps.packPosFixInt(112);
-    _ = try mps.packNegFixInt(12);
-    _ = try mps.packBool(false);
-    _ = try mps.packBool(false);
-    _ = try mps.packUint8(128);
-    _ = try mps.packUint8(42);
-    _ = try mps.packUint16(999);
-    _ = try mps.packUint16(1337);
-    _ = try mps.packFixStr("Memesdds");
-    _ = try mps.packFixStr("school!");
+    _ = try zs.packBool(true);
+    _ = try zs.packPosFixInt(0);
+    _ = try zs.packNegFixInt(23);
+    _ = try zs.packNil();
+    _ = try zs.packPosFixInt(112);
+    _ = try zs.packNegFixInt(12);
+    _ = try zs.packBool(false);
+    _ = try zs.packBool(false);
+    _ = try zs.packUint8(128);
+    _ = try zs.packUint8(42);
+    _ = try zs.packUint16(999);
+    _ = try zs.packUint16(1337);
+    _ = try zs.packFixStr("Memes");
+    _ = try zs.packFixStr("school!");
 
-    mps.dump();
-    mps.hexDump();
+    zs.dump();
+    zs.hexDump();
 
     // std.log.info("Type of `noomba` is {s}", .{@typeName(@TypeOf(noomba))});
 }
@@ -45,7 +45,7 @@ fn beCast(comptime dest_type: type, n: anytype) !dest_type {
         .Int, .ComptimeInt => @byteSwap(dest_type, @intCast(dest_type, num)),
         .Float, .ComptimeFloat => @byteSwap(dest_type, @floatCast(dest_type, num)),
         .Bool => num,
-        else => if (@TypeOf(n) == dest_type) n else error{IncompatibleTypes},
+        else => if (@TypeOf(n) == dest_type) n else error.IncompatibleTypes,
     };
 }
 
@@ -55,40 +55,40 @@ fn beCast(comptime dest_type: type, n: anytype) !dest_type {
 
 /// Writes a native int with BE byte ordering.
 /// Returns: number of bytes written.
-const MsgpackStream = struct {
+const ZpackStream = struct {
     ator: *Allocator = undefined,
     buf: []u8 = undefined,
     capacity: usize = undefined,
     // end: usize = 0,
     pos: usize = 0,
     /// Prints type and value of all objects in this stream.
-    pub fn dump(mps: MsgpackStream) void {
+    pub fn dump(zs: ZpackStream) void {
         var i: usize = 0;
 
-        _ = std.log.info("MsgpackStream dump:", .{});
-        _ = std.log.info("Capacity: {d}", .{mps.capacity});
-        _ = std.log.info("Pos: {d}", .{mps.pos});
+        _ = std.log.info("ZpackStream dump:", .{});
+        _ = std.log.info("Capacity: {d}", .{zs.capacity});
+        _ = std.log.info("Pos: {d}", .{zs.pos});
 
-        while (i < mps.pos) {
-            var tag: u8 = mps.buf[i];
+        while (i < zs.pos) {
+            var tag: u8 = zs.buf[i];
             i += 1;
 
             switch (tag) {
                 0x00...0x7F => std.log.info("Positive Fixint: {d}", .{tag}),
                 0xA0...0xBF => {
                     const len = tag & 0b0001_1111;
-                    std.log.info("FixStr: len: {b}, \"{s}\"", .{ tag, mps.buf[i .. i + len] });
+                    std.log.info("FixStr: len: {b}, \"{s}\"", .{ tag, zs.buf[i .. i + len] });
                     i += len;
                 },
                 0xC0 => std.log.info("nil", .{}),
                 0xC2 => std.log.info("Bool: False", .{}),
                 0xC3 => std.log.info("Bool: True", .{}),
                 0xCC => {
-                    std.log.info("Uint8: {d}", .{mps.buf[i]});
+                    std.log.info("Uint8: {d}", .{zs.buf[i]});
                     i += 1;
                 },
                 0xCD => {
-                    std.log.info("Uint16: {d}", .{beCast(u16, (@intCast(u16, mps.buf[i]) << 8) + mps.buf[i + 1])});
+                    std.log.info("Uint16: {d}", .{beCast(u16, (@intCast(u16, zs.buf[i]) << 8) + zs.buf[i + 1])});
                     i += 2;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
@@ -97,16 +97,16 @@ const MsgpackStream = struct {
         }
     }
 
-    pub fn hexDump(mps: *MsgpackStream) void {
+    pub fn hexDump(zs: *ZpackStream) void {
         const alph = "0123456789ABCDEF";
         var buf: [16 * 3]u8 = .{0} ** 48;
         _ = alph;
-        _ = mps;
+        _ = zs;
 
         var row: usize = 0;
 
-        while (row < mps.pos) : (row += 16) {
-            for (mps.buf[row .. row + 16]) |c, i| {
+        while (row < zs.pos) : (row += 16) {
+            for (zs.buf[row .. row + 16]) |c, i| {
                 buf[i * 3] = alph[c >> 4 & 0xF];
                 buf[i * 3 + 1] = alph[c & 0xF];
                 buf[i * 3 + 2] = ' ';
@@ -116,102 +116,102 @@ const MsgpackStream = struct {
         }
     }
 
-    // fn checkFit(mps: MsgpackStream, obj: anytype) {
+    // fn checkFit(zs: ZpackStream, obj: anytype) {
 
     // }
-    pub fn realloc(mps: *MsgpackStream, new_capacity: usize) !void {
-        var new_buf = try mps.ator.alloc(u8, new_capacity);
-        std.mem.copy(u8, new_buf, mps.buf[0..mps.pos]);
-        mps.ator.free(mps.buf);
-        mps.buf = new_buf;
-        mps.capacity = new_capacity;
+    pub fn realloc(zs: *ZpackStream, new_capacity: usize) !void {
+        var new_buf = try zs.ator.alloc(u8, new_capacity);
+        std.mem.copy(u8, new_buf, zs.buf[0..zs.pos]);
+        zs.ator.free(zs.buf);
+        zs.buf = new_buf;
+        zs.capacity = new_capacity;
     }
 
-    pub fn reallocIfNeeded(mps: *MsgpackStream, desired_capacity: usize) !void {
-        if (desired_capacity > mps.capacity) {
-            var new_cap = mps.capacity * 2;
-            _ = try mps.realloc(new_cap);
-            mps.capacity = new_cap;
+    pub fn reallocIfNeeded(zs: *ZpackStream, desired_capacity: usize) !void {
+        if (desired_capacity > zs.capacity) {
+            var new_cap = zs.capacity * 2;
+            _ = try zs.realloc(new_cap);
+            zs.capacity = new_cap;
         }
     }
 
     /// Writes a 1 byte nil to the object stream.
     /// Nil: 0xC0
     /// Returns number of bytes written (always 1)
-    pub fn packNil(mps: *MsgpackStream) !usize {
-        _ = try mps.reallocIfNeeded(mps.pos + 1);
+    pub fn packNil(zs: *ZpackStream) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, NIL", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, NIL", .{ zs.pos, zs.capacity });
 
-        mps.buf[mps.pos] = 0xC0;
-        mps.pos += 1;
+        zs.buf[zs.pos] = 0xC0;
+        zs.pos += 1;
         return 1;
     }
 
     /// Writes a 1 byte bool to the object stream.
     /// False: 0xC2, True: 0xC3
     /// Returns number of bytes written (always 1)
-    pub fn packBool(mps: *MsgpackStream, b: bool) !usize {
-        _ = try mps.reallocIfNeeded(mps.pos + 1);
+    pub fn packBool(zs: *ZpackStream, b: bool) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, BOOL", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, BOOL", .{ zs.pos, zs.capacity });
 
-        mps.buf[mps.pos] = @as(u8, if (b) 0xC3 else 0xC2);
-        mps.pos += 1;
+        zs.buf[zs.pos] = @as(u8, if (b) 0xC3 else 0xC2);
+        zs.pos += 1;
         return 1;
     }
     /// Writes a 7 bit positive integer to the object stream.
     /// Returns number of bytes written (always 1).
-    pub fn packPosFixInt(mps: *MsgpackStream, n: u7) !usize {
-        _ = try mps.reallocIfNeeded(mps.pos + 1);
+    pub fn packPosFixInt(zs: *ZpackStream, n: u7) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, POSFIXINT", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, POSFIXINT", .{ zs.pos, zs.capacity });
 
-        mps.buf[mps.pos] = @as(u8, n);
-        mps.pos += 1;
+        zs.buf[zs.pos] = @as(u8, n);
+        zs.pos += 1;
         return 1;
     }
     /// Writes a 5 bit negative integer to the object stream.
     /// Returns number of bytes written (always 1).
-    pub fn packNegFixInt(mps: *MsgpackStream, n: u5) !usize {
-        _ = try mps.reallocIfNeeded(mps.pos + 1);
+    pub fn packNegFixInt(zs: *ZpackStream, n: u5) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, NEGFIXINT", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, NEGFIXINT", .{ zs.pos, zs.capacity });
 
-        mps.buf[mps.pos] = @as(u8, n) | @as(u8, 0b1110_0000);
-        mps.pos += 1;
+        zs.buf[zs.pos] = @as(u8, n) | @as(u8, 0b1110_0000);
+        zs.pos += 1;
         return 1;
     }
     /// Writes an 8-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 2).
-    pub fn packUint8(mps: *MsgpackStream, n: u8) !usize {
-        _ = try mps.reallocIfNeeded(mps.pos + 2);
+    pub fn packUint8(zs: *ZpackStream, n: u8) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 2);
 
-        // std.log.info("pos: {d}, cap: {d}, UINT8", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, UINT8", .{ zs.pos, zs.capacity });
 
-        mps.buf[mps.pos] = 0xCC;
-        mps.buf[mps.pos + 1] = n;
-        mps.pos += 2;
+        zs.buf[zs.pos] = 0xCC;
+        zs.buf[zs.pos + 1] = n;
+        zs.pos += 2;
         return 2;
     }
 
-    pub fn packUint16(mps: *MsgpackStream, n: u16) !usize {
-        _ = try mps.reallocIfNeeded(mps.pos + 3);
+    pub fn packUint16(zs: *ZpackStream, n: u16) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 3);
 
-        // std.log.info("pos: {d}, cap: {d}, UINT16", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, UINT16", .{ zs.pos, zs.capacity });
 
         var n_be = try beCast(u16, n);
 
-        mps.buf[mps.pos] = 0xCD;
-        mps.buf[mps.pos + 1] = @intCast(u8, n_be >> 8);
-        mps.buf[mps.pos + 2] = @intCast(u8, n_be & 0xFF);
-        mps.pos += 3;
+        zs.buf[zs.pos] = 0xCD;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be >> 8);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be & 0xFF);
+        zs.pos += 3;
         return 3;
     }
 
-    pub fn packFixStr(mps: *MsgpackStream, s: []const u8) !usize {
+    pub fn packFixStr(zs: *ZpackStream, s: []const u8) !usize {
 
-        // std.log.info("pos: {d}, cap: {d}, FIXSTR", .{ mps.pos, mps.capacity });
+        // std.log.info("pos: {d}, cap: {d}, FIXSTR", .{ zs.pos, zs.capacity });
 
         var tag: u8 = 0b1010_0000;
 
@@ -221,22 +221,22 @@ const MsgpackStream = struct {
             tag |= @intCast(u8, s.len);
         }
 
-        _ = try mps.reallocIfNeeded(mps.pos + 1 + s.len);
+        _ = try zs.reallocIfNeeded(zs.pos + 1 + s.len);
 
         // std.log.info("!!! {d} {b} {s}", .{ tag, tag, s });
 
-        mps.buf[mps.pos] = tag;
-        std.mem.copy(u8, mps.buf[mps.pos + 1 ..], s);
-        mps.buf[mps.pos + 1] = s[0];
-        mps.buf[mps.pos + 2] = s[1];
-        mps.pos += (1 + s.len);
+        zs.buf[zs.pos] = tag;
+        std.mem.copy(u8, zs.buf[zs.pos + 1 ..], s);
+        zs.buf[zs.pos + 1] = s[0];
+        zs.buf[zs.pos + 2] = s[1];
+        zs.pos += (1 + s.len);
 
         return s.len + 1;
     }
 
     /// Writes a native int with BE byte ordering to the stream.
     /// Returns: number of bytes written.
-    // pub fn PackUint(mps: MsgpackStream, n: anytype) !usize {
+    // pub fn PackUint(zs: ZpackStream, n: anytype) !usize {
     //     var num = n;
     //     const num_ti = @typeInfo(num);
     //     const endianess = Arch.endian();
@@ -255,17 +255,17 @@ const MsgpackStream = struct {
 
     //     if (is_signed and num < 0 and num >= -32) {
     //         // Negative fixint stores a 5 bit negative number. [ 111YYYYY ]
-    //         mps.buf[mps.pos] = @intCast(u8, num) & @as(u8, 0b1110_0000);
-    //         mps.pos += 1;
+    //         zs.buf[zs.pos] = @intCast(u8, num) & @as(u8, 0b1110_0000);
+    //         zs.pos += 1;
     //     }
     // }
 
-    pub fn init(alligator: *Allocator) !MsgpackStream {
+    pub fn init(alligator: *Allocator) !ZpackStream {
         var buff: []u8 = undefined;
         const cap: usize = 2;
         buff = try alligator.alloc(u8, cap); // XXX: magic
 
-        return MsgpackStream{
+        return ZpackStream{
             .ator = alligator,
             .buf = buff,
             .capacity = cap,
@@ -273,7 +273,7 @@ const MsgpackStream = struct {
         };
     }
     // Free the buffer.
-    pub fn deinit(mps: MsgpackStream) void {
-        mps.ator.free(mps.buf);
+    pub fn deinit(zs: ZpackStream) void {
+        zs.ator.free(zs.buf);
     }
 };
