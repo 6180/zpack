@@ -12,15 +12,16 @@ pub fn main() anyerror!void {
     _ = try zs.packNil();
     _ = try zs.packBool(true);
     _ = try zs.packBool(false);
-    _ = try zs.packPosFixInt(0);
     _ = try zs.packPosFixInt(112);
     _ = try zs.packNegFixInt(23);
-    _ = try zs.packNegFixInt(12);
-    _ = try zs.packUint8(128);
     _ = try zs.packUint8(42);
-    _ = try zs.packUint16(999);
     _ = try zs.packUint16(1337);
     _ = try zs.packUint32(0xDEADBEEF);
+    _ = try zs.packUint64(0xCAFEB00BDEADBEEF);
+    _ = try zs.packInt8(42);
+    _ = try zs.packInt16(420);
+    _ = try zs.packInt32(0x1CED1337);
+    _ = try zs.packInt64(0x1ECA1BABEFECA1BA);
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
 
@@ -78,7 +79,7 @@ const ZpackStream = struct {
                 0x00...0x7F => std.log.info("Positive Fixint: {d}", .{tag}),
                 0xA0...0xBF => {
                     const len = tag & 0b0001_1111;
-                    std.log.info("FixStr: len: {b}, \"{s}\"", .{ tag, zs.buf[i .. i + len] });
+                    std.log.info("FixStr: len: {d}, \"{s}\"", .{ len, zs.buf[i .. i + len] });
                     i += len;
                 },
                 0xC0 => std.log.info("nil", .{}),
@@ -89,12 +90,32 @@ const ZpackStream = struct {
                     i += 1;
                 },
                 0xCD => {
-                    std.log.info("Uint16: 0x{0x} ({0d})", .{beCast(u16, zs.buf[i] + (@intCast(u16, zs.buf[i + 1]) << 8))});
+                    std.log.info("Uint16: 0x{0X} ({0d})", .{beCast(u16, zs.buf[i] + (@intCast(u16, zs.buf[i + 1]) << 8))});
                     i += 2;
                 },
                 0xCE => {
-                    std.log.info("Uint32: {d}", .{beCast(u32, zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
+                    std.log.info("Uint32: 0x{0X} ({0d})", .{beCast(u32, zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
                     i += 4;
+                },
+                0xCF => {
+                    std.log.info("Uint64: 0x{0X} ({0d})", .{beCast(u64, zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56))});
+                    i += 8;
+                },
+                0xD0 => {
+                    std.log.info("Int8: {d}", .{zs.buf[i]});
+                    i += 1;
+                },
+                0xD1 => {
+                    std.log.info("Int16: 0x{0X} ({0d})", .{beCast(i16, zs.buf[i] + (@intCast(i16, zs.buf[i + 1]) << 8))});
+                    i += 2;
+                },
+                0xD2 => {
+                    std.log.info("Int32: 0x{0X} ({0d})", .{beCast(i32, zs.buf[i] + (@intCast(i32, zs.buf[i + 1]) << 8) + (@intCast(i32, zs.buf[i + 2]) << 16) + (@intCast(i32, zs.buf[i + 3]) << 24))});
+                    i += 4;
+                },
+                0xD3 => {
+                    std.log.info("Int64: 0x{0X} ({0d})", .{beCast(i64, zs.buf[i] + (@intCast(i64, zs.buf[i + 1]) << 8) + (@intCast(i64, zs.buf[i + 2]) << 16) + (@intCast(i64, zs.buf[i + 3]) << 24) + (@intCast(i64, zs.buf[i + 4]) << 32) + (@intCast(i64, zs.buf[i + 5]) << 40) + (@intCast(i64, zs.buf[i + 6]) << 48) + (@intCast(i64, zs.buf[i + 7]) << 56))});
+                    i += 8;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
                 else => std.log.info("Unknown tag: {X}", .{tag}),
@@ -146,8 +167,6 @@ const ZpackStream = struct {
     pub fn packNil(zs: *ZpackStream) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, NIL", .{ zs.pos, zs.capacity });
-
         zs.buf[zs.pos] = 0xC0;
         zs.pos += 1;
         return 1;
@@ -159,18 +178,15 @@ const ZpackStream = struct {
     pub fn packBool(zs: *ZpackStream, b: bool) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, BOOL", .{ zs.pos, zs.capacity });
-
         zs.buf[zs.pos] = @as(u8, if (b) 0xC3 else 0xC2);
         zs.pos += 1;
         return 1;
     }
+
     /// Writes a 7 bit positive integer to the object stream.
     /// Returns number of bytes written (always 1).
     pub fn packPosFixInt(zs: *ZpackStream, n: u7) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 1);
-
-        // std.log.info("pos: {d}, cap: {d}, POSFIXINT", .{ zs.pos, zs.capacity });
 
         zs.buf[zs.pos] = @as(u8, n);
         zs.pos += 1;
@@ -181,18 +197,16 @@ const ZpackStream = struct {
     pub fn packNegFixInt(zs: *ZpackStream, n: u5) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 1);
 
-        // std.log.info("pos: {d}, cap: {d}, NEGFIXINT", .{ zs.pos, zs.capacity });
-
         zs.buf[zs.pos] = @as(u8, n) | @as(u8, 0b1110_0000);
         zs.pos += 1;
         return 1;
     }
+
+    /// XXX: You can get rid of the byte by byte stream writing and just write the whole int at once after using beCast().
     /// Writes an 8-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 2).
     pub fn packUint8(zs: *ZpackStream, n: u8) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 2);
-
-        // std.log.info("pos: {d}, cap: {d}, UINT8", .{ zs.pos, zs.capacity });
 
         zs.buf[zs.pos] = 0xCC;
         zs.buf[zs.pos + 1] = n;
@@ -202,8 +216,6 @@ const ZpackStream = struct {
 
     pub fn packUint16(zs: *ZpackStream, n: u16) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 3);
-
-        // std.log.info("pos: {d}, cap: {d}, UINT16", .{ zs.pos, zs.capacity });
 
         var n_be = try beCast(u16, n);
 
@@ -218,8 +230,6 @@ const ZpackStream = struct {
     pub fn packUint32(zs: *ZpackStream, n: u32) !usize {
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
-        std.log.info("pos: {d}, cap: {d}, UINT32", .{ zs.pos, zs.capacity });
-
         var n_be = try beCast(u32, n);
 
         zs.buf[zs.pos] = 0xCE;
@@ -230,6 +240,84 @@ const ZpackStream = struct {
         zs.pos += 5;
 
         return 5;
+    }
+
+    pub fn packUint64(zs: *ZpackStream, n: u64) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 9);
+
+        var n_be = try beCast(u64, n);
+
+        zs.buf[zs.pos] = 0xCF;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, n_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, n_be >> 24 & 0xFF);
+        zs.buf[zs.pos + 5] = @intCast(u8, n_be >> 32 & 0xFF);
+        zs.buf[zs.pos + 6] = @intCast(u8, n_be >> 40 & 0xFF);
+        zs.buf[zs.pos + 7] = @intCast(u8, n_be >> 48 & 0xFF);
+        zs.buf[zs.pos + 8] = @intCast(u8, n_be >> 56 & 0xFF);
+        zs.pos += 9;
+
+        return 9;
+    }
+
+    pub fn packInt8(zs: *ZpackStream, n: i8) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 2);
+
+        var n_be = try beCast(i8, n);
+
+        zs.buf[zs.pos] = 0xD0;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0x7F);
+        zs.pos += 2;
+
+        return 2;
+    }
+
+    pub fn packInt16(zs: *ZpackStream, n: i16) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 3);
+
+        var n_be = try beCast(i16, n);
+
+        zs.buf[zs.pos] = 0xD1;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be >> 8 & 0xFF);
+        zs.pos += 3;
+
+        return 3;
+    }
+
+    pub fn packInt32(zs: *ZpackStream, n: i32) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 5);
+
+        var n_be = try beCast(i32, n);
+
+        zs.buf[zs.pos] = 0xD2;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, n_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, n_be >> 24 & 0xFF);
+        zs.pos += 5;
+
+        return 5;
+    }
+
+    pub fn packInt64(zs: *ZpackStream, n: i64) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 9);
+
+        var n_be = try beCast(i64, n);
+
+        zs.buf[zs.pos] = 0xD3;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, n_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, n_be >> 24 & 0xFF);
+        zs.buf[zs.pos + 5] = @intCast(u8, n_be >> 32 & 0xFF);
+        zs.buf[zs.pos + 6] = @intCast(u8, n_be >> 40 & 0xFF);
+        zs.buf[zs.pos + 7] = @intCast(u8, n_be >> 48 & 0xFF);
+        zs.buf[zs.pos + 8] = @intCast(u8, n_be >> 56 & 0xFF);
+        zs.pos += 9;
+
+        return 9;
     }
 
     pub fn packFixStr(zs: *ZpackStream, s: []const u8) !usize {
