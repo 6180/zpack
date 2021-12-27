@@ -9,18 +9,18 @@ pub fn main() anyerror!void {
     var zs = try ZpackStream.init(&gpa.allocator);
     defer zs.deinit();
 
-    _ = try zs.packBool(true);
-    _ = try zs.packPosFixInt(0);
-    _ = try zs.packNegFixInt(23);
     _ = try zs.packNil();
+    _ = try zs.packBool(true);
+    _ = try zs.packBool(false);
+    _ = try zs.packPosFixInt(0);
     _ = try zs.packPosFixInt(112);
+    _ = try zs.packNegFixInt(23);
     _ = try zs.packNegFixInt(12);
-    _ = try zs.packBool(false);
-    _ = try zs.packBool(false);
     _ = try zs.packUint8(128);
     _ = try zs.packUint8(42);
     _ = try zs.packUint16(999);
     _ = try zs.packUint16(1337);
+    _ = try zs.packUint32(0xDEADBEEF);
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
 
@@ -29,7 +29,7 @@ pub fn main() anyerror!void {
 
     // std.log.info("Type of `noomba` is {s}", .{@typeName(@TypeOf(noomba))});
 }
-
+// Does a byte-swap on LE machines, an intCast on BE machines.
 // !!! The programmer must make sure `dest_type` is large enough to hold the
 // value of `n` without losing any information.  Use `beCastSafe` for an error-
 // checked version that returns an UnsafeTypeNarrowing error  if the cast would discard
@@ -37,8 +37,9 @@ pub fn main() anyerror!void {
 fn beCast(comptime dest_type: type, n: anytype) !dest_type {
     var num = n;
     const num_ti = @typeInfo(@TypeOf(num));
-    // If big endian,
-    if (@import("builtin").target.cpu.arch.endian() == .Little)
+
+    // If big endian, return the value as-is, just intCast() it.
+    if (@import("builtin").target.cpu.arch.endian() == .Big)
         return @intCast(dest_type, num);
 
     return switch (num_ti) {
@@ -88,8 +89,12 @@ const ZpackStream = struct {
                     i += 1;
                 },
                 0xCD => {
-                    std.log.info("Uint16: {d}", .{beCast(u16, (@intCast(u16, zs.buf[i]) << 8) + zs.buf[i + 1])});
+                    std.log.info("Uint16: 0x{0x} ({0d})", .{beCast(u16, zs.buf[i] + (@intCast(u16, zs.buf[i + 1]) << 8))});
                     i += 2;
+                },
+                0xCE => {
+                    std.log.info("Uint32: {d}", .{beCast(u32, zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
+                    i += 4;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
                 else => std.log.info("Unknown tag: {X}", .{tag}),
@@ -203,10 +208,28 @@ const ZpackStream = struct {
         var n_be = try beCast(u16, n);
 
         zs.buf[zs.pos] = 0xCD;
-        zs.buf[zs.pos + 1] = @intCast(u8, n_be >> 8);
-        zs.buf[zs.pos + 2] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be >> 8);
         zs.pos += 3;
+
         return 3;
+    }
+
+    pub fn packUint32(zs: *ZpackStream, n: u32) !usize {
+        _ = try zs.reallocIfNeeded(zs.pos + 5);
+
+        std.log.info("pos: {d}, cap: {d}, UINT32", .{ zs.pos, zs.capacity });
+
+        var n_be = try beCast(u32, n);
+
+        zs.buf[zs.pos] = 0xCE;
+        zs.buf[zs.pos + 1] = @intCast(u8, n_be & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, n_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, n_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, n_be >> 24 & 0xFF);
+        zs.pos += 5;
+
+        return 5;
     }
 
     pub fn packFixStr(zs: *ZpackStream, s: []const u8) !usize {
@@ -233,32 +256,6 @@ const ZpackStream = struct {
 
         return s.len + 1;
     }
-
-    /// Writes a native int with BE byte ordering to the stream.
-    /// Returns: number of bytes written.
-    // pub fn PackUint(zs: ZpackStream, n: anytype) !usize {
-    //     var num = n;
-    //     const num_ti = @typeInfo(num);
-    //     const endianess = Arch.endian();
-
-    //     // Make sure n is an int.
-    //     if (num_ti != .Int)
-    //         return error{TypeError};
-
-    //     const is_signed: bool = (num_ti.signedness == .signed);
-
-    //     // If arch is LE, swap byte order.
-    //     if (endianess == .Little)
-    //         num = @byteSwap(@TypeOf(n), num);
-
-    //     // const bit_width = @bitSizeOf(num);
-
-    //     if (is_signed and num < 0 and num >= -32) {
-    //         // Negative fixint stores a 5 bit negative number. [ 111YYYYY ]
-    //         zs.buf[zs.pos] = @intCast(u8, num) & @as(u8, 0b1110_0000);
-    //         zs.pos += 1;
-    //     }
-    // }
 
     pub fn init(alligator: *Allocator) !ZpackStream {
         var buff: []u8 = undefined;
