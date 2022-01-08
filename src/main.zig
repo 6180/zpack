@@ -22,39 +22,40 @@ pub fn main() anyerror!void {
     _ = try zs.packInt16(420);
     _ = try zs.packInt32(0x1CED1337);
     _ = try zs.packInt64(0x1ECA1BABEFECA1BA);
+    _ = try zs.packFloat32(3.14);
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
 
     zs.dump();
     zs.hexDump();
-
-    // std.log.info("Type of `noomba` is {s}", .{@typeName(@TypeOf(noomba))});
 }
 // Does a byte-swap on LE machines, an intCast on BE machines.
 // !!! The programmer must make sure `dest_type` is large enough to hold the
 // value of `n` without losing any information.  Use `beCastSafe` for an error-
 // checked version that returns an UnsafeTypeNarrowing error  if the cast would discard
 // bits.
-fn beCast(comptime dest_type: type, n: anytype) !dest_type {
+fn beCast(n: anytype) !@TypeOf(n) {
     var num = n;
     const num_ti = @typeInfo(@TypeOf(num));
 
-    // TODO: write our own endianness detection.
-    // If big endian, return the value as-is, just intCast() it.
+    // TODO: write our own endianness detection, this is too bloaty to pull in to detect endianess.
+    // If big endian, return the value as-is
     if (@import("builtin").target.cpu.arch.endian() == .Big)
-        return @intCast(dest_type, num);
+        return num;
 
+    // On LE machines byte-swap
     return switch (num_ti) {
-        .Int, .ComptimeInt => @byteSwap(dest_type, @intCast(dest_type, num)),
-        .Float, .ComptimeFloat => @byteSwap(dest_type, @floatCast(dest_type, num)),
-        .Bool => num,
-        else => if (@TypeOf(n) == dest_type) n else error.IncompatibleTypes,
+        .Int, .ComptimeInt => @byteSwap(@TypeOf(num), @intCast(@TypeOf(num), num)),
+        .Float => |f_ti| blk: {
+            if (f_ti.bits == 32) {
+                break :blk @byteSwap(u32, @bitCast(u32, num));
+            } else if (f_ti.bits == 64) {
+                break :blk @byteSwap(u64, @bitCast(u64, num));
+            }
+        },
+        else => num,
     };
 }
-
-// fn beCastSafe(dest_type: type, n: anytype) !dest_type {
-
-// }
 
 /// Writes a native int with BE byte ordering.
 /// Returns: number of bytes written.
@@ -91,15 +92,15 @@ const ZpackStream = struct {
                     i += 1;
                 },
                 0xCD => {
-                    std.log.info("Uint16: 0x{0X} ({0d})", .{beCast(u16, zs.buf[i] + (@intCast(u16, zs.buf[i + 1]) << 8))});
+                    std.log.info("Uint16: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(u16, zs.buf[i + 1]) << 8))});
                     i += 2;
                 },
                 0xCE => {
-                    std.log.info("Uint32: 0x{0X} ({0d})", .{beCast(u32, zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
+                    std.log.info("Uint32: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
                     i += 4;
                 },
                 0xCF => {
-                    std.log.info("Uint64: 0x{0X} ({0d})", .{beCast(u64, zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56))});
+                    std.log.info("Uint64: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56))});
                     i += 8;
                 },
                 0xD0 => {
@@ -107,15 +108,15 @@ const ZpackStream = struct {
                     i += 1;
                 },
                 0xD1 => {
-                    std.log.info("Int16: 0x{0X} ({0d})", .{beCast(i16, zs.buf[i] + (@intCast(i16, zs.buf[i + 1]) << 8))});
+                    std.log.info("Int16: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(i16, zs.buf[i + 1]) << 8))});
                     i += 2;
                 },
                 0xD2 => {
-                    std.log.info("Int32: 0x{0X} ({0d})", .{beCast(i32, zs.buf[i] + (@intCast(i32, zs.buf[i + 1]) << 8) + (@intCast(i32, zs.buf[i + 2]) << 16) + (@intCast(i32, zs.buf[i + 3]) << 24))});
+                    std.log.info("Int32: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(i32, zs.buf[i + 1]) << 8) + (@intCast(i32, zs.buf[i + 2]) << 16) + (@intCast(i32, zs.buf[i + 3]) << 24))});
                     i += 4;
                 },
                 0xD3 => {
-                    std.log.info("Int64: 0x{0X} ({0d})", .{beCast(i64, zs.buf[i] + (@intCast(i64, zs.buf[i + 1]) << 8) + (@intCast(i64, zs.buf[i + 2]) << 16) + (@intCast(i64, zs.buf[i + 3]) << 24) + (@intCast(i64, zs.buf[i + 4]) << 32) + (@intCast(i64, zs.buf[i + 5]) << 40) + (@intCast(i64, zs.buf[i + 6]) << 48) + (@intCast(i64, zs.buf[i + 7]) << 56))});
+                    std.log.info("Int64: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(i64, zs.buf[i + 1]) << 8) + (@intCast(i64, zs.buf[i + 2]) << 16) + (@intCast(i64, zs.buf[i + 3]) << 24) + (@intCast(i64, zs.buf[i + 4]) << 32) + (@intCast(i64, zs.buf[i + 5]) << 40) + (@intCast(i64, zs.buf[i + 6]) << 48) + (@intCast(i64, zs.buf[i + 7]) << 56))});
                     i += 8;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
@@ -212,7 +213,7 @@ const ZpackStream = struct {
     /// Writes a 16-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 3).
     pub fn packUint16(zs: *ZpackStream, n: u16) !usize {
-        var n_be = try beCast(u16, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 3);
 
         zs.buf[zs.pos] = 0xCD;
@@ -225,7 +226,7 @@ const ZpackStream = struct {
     /// Writes a 32-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 5).
     pub fn packUint32(zs: *ZpackStream, n: u32) !usize {
-        var n_be = try beCast(u32, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
         zs.buf[zs.pos] = 0xCE;
@@ -240,7 +241,7 @@ const ZpackStream = struct {
     /// Writes a 64-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 9).
     pub fn packUint64(zs: *ZpackStream, n: u64) !usize {
-        var n_be = try beCast(u64, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
         zs.buf[zs.pos] = 0xCF;
@@ -259,7 +260,7 @@ const ZpackStream = struct {
     /// Writes an 8-bit signed integer to the object stream.
     /// Returns number of bytes written (always 2).
     pub fn packInt8(zs: *ZpackStream, n: i8) !usize {
-        var n_be = try beCast(i8, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 2);
 
         zs.buf[zs.pos] = 0xD0;
@@ -271,7 +272,7 @@ const ZpackStream = struct {
     /// Writes a 16-bit signed integer to the object stream.
     /// Returns number of bytes written (always 3).
     pub fn packInt16(zs: *ZpackStream, n: i16) !usize {
-        var n_be = try beCast(i16, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 3);
 
         zs.buf[zs.pos] = 0xD1;
@@ -284,7 +285,7 @@ const ZpackStream = struct {
     /// Writes a 32-bit signed integer to the object stream.
     /// Returns number of bytes written (always 5).
     pub fn packInt32(zs: *ZpackStream, n: i32) !usize {
-        var n_be = try beCast(i32, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
         zs.buf[zs.pos] = 0xD2;
@@ -299,7 +300,7 @@ const ZpackStream = struct {
     /// Writes a 64-bit signed integer to the object stream.
     /// Returns number of bytes written (always 9).
     pub fn packInt64(zs: *ZpackStream, n: i64) !usize {
-        var n_be = try beCast(i64, n);
+        var n_be = try beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
         zs.buf[zs.pos] = 0xD3;
@@ -314,6 +315,24 @@ const ZpackStream = struct {
         zs.pos += 9;
 
         return 9;
+    }
+    /// Writes a 32-bit floating point number to the object stream.
+    /// Returns the number of bytes written (always 5).
+    pub fn packFloat32(zs: *ZpackStream, f: f32) !usize {
+        var f_be: u32 = try beCast(f32);
+        // var f_be = try beCast(@bitCast(u32, f));
+        _ = try zs.reallocIfNeeded(zs.pos + 5);
+
+        std.log.info("XXXXX {e} {X}", .{ f, f_be });
+
+        zs.buf[zs.pos] = 0xCA;
+        zs.buf[zs.pos + 1] = @intCast(u8, f_be & 0x7F);
+        zs.buf[zs.pos + 2] = @intCast(u8, f_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, f_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, f_be >> 24 & 0xFF);
+        zs.pos += 5;
+
+        return 5;
     }
     /// Writes a byte array with a max len of 31 to the object stream.
     /// Returns number of bytes written (s.len + 1).
