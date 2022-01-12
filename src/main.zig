@@ -6,7 +6,7 @@ pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    var zs = try ZpackStream.init(&gpa.allocator);
+    var zs = try ZpackStream.init(gpa.allocator());
     defer zs.deinit();
 
     _ = try zs.packNil();
@@ -34,7 +34,7 @@ pub fn main() anyerror!void {
 // value of `n` without losing any information.  Use `beCastSafe` for an error-
 // checked version that returns an UnsafeTypeNarrowing error  if the cast would discard
 // bits.
-fn beCast(n: anytype) !@TypeOf(n) {
+fn beCast(n: anytype) @TypeOf(n) {
     var num = n;
     const num_ti = @typeInfo(@TypeOf(num));
 
@@ -60,7 +60,7 @@ fn beCast(n: anytype) !@TypeOf(n) {
 /// Writes a native int with BE byte ordering.
 /// Returns: number of bytes written.
 const ZpackStream = struct {
-    ator: *Allocator = undefined,
+    ator: Allocator = undefined,
     buf: []u8 = undefined,
     capacity: usize = undefined,
     // end: usize = 0,
@@ -87,6 +87,12 @@ const ZpackStream = struct {
                 0xC0 => std.log.info("nil", .{}),
                 0xC2 => std.log.info("Bool: False", .{}),
                 0xC3 => std.log.info("Bool: True", .{}),
+                0xCA => {
+                    std.log.info("Float32: {e}", .{ 
+                        @bitCast(f32, beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24)))
+                    });
+                    i += 4;
+                },
                 0xCC => {
                     std.log.info("Uint8: {d}", .{zs.buf[i]});
                     i += 1;
@@ -213,7 +219,7 @@ const ZpackStream = struct {
     /// Writes a 16-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 3).
     pub fn packUint16(zs: *ZpackStream, n: u16) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 3);
 
         zs.buf[zs.pos] = 0xCD;
@@ -226,7 +232,7 @@ const ZpackStream = struct {
     /// Writes a 32-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 5).
     pub fn packUint32(zs: *ZpackStream, n: u32) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
         zs.buf[zs.pos] = 0xCE;
@@ -241,7 +247,7 @@ const ZpackStream = struct {
     /// Writes a 64-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 9).
     pub fn packUint64(zs: *ZpackStream, n: u64) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
         zs.buf[zs.pos] = 0xCF;
@@ -260,7 +266,7 @@ const ZpackStream = struct {
     /// Writes an 8-bit signed integer to the object stream.
     /// Returns number of bytes written (always 2).
     pub fn packInt8(zs: *ZpackStream, n: i8) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 2);
 
         zs.buf[zs.pos] = 0xD0;
@@ -272,7 +278,7 @@ const ZpackStream = struct {
     /// Writes a 16-bit signed integer to the object stream.
     /// Returns number of bytes written (always 3).
     pub fn packInt16(zs: *ZpackStream, n: i16) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 3);
 
         zs.buf[zs.pos] = 0xD1;
@@ -285,7 +291,7 @@ const ZpackStream = struct {
     /// Writes a 32-bit signed integer to the object stream.
     /// Returns number of bytes written (always 5).
     pub fn packInt32(zs: *ZpackStream, n: i32) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
         zs.buf[zs.pos] = 0xD2;
@@ -300,7 +306,7 @@ const ZpackStream = struct {
     /// Writes a 64-bit signed integer to the object stream.
     /// Returns number of bytes written (always 9).
     pub fn packInt64(zs: *ZpackStream, n: i64) !usize {
-        var n_be = try beCast(n);
+        var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
         zs.buf[zs.pos] = 0xD3;
@@ -319,17 +325,16 @@ const ZpackStream = struct {
     /// Writes a 32-bit floating point number to the object stream.
     /// Returns the number of bytes written (always 5).
     pub fn packFloat32(zs: *ZpackStream, f: f32) !usize {
-        var f_be: u32 = try beCast(f32);
-        // var f_be = try beCast(@bitCast(u32, f));
+        var fu_be: u32 = beCast(@bitCast(u32, f));
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
-        std.log.info("XXXXX {e} {X}", .{ f, f_be });
+        std.log.info("XXXXX {e} {X}", .{ f, fu_be });
 
         zs.buf[zs.pos] = 0xCA;
-        zs.buf[zs.pos + 1] = @intCast(u8, f_be & 0x7F);
-        zs.buf[zs.pos + 2] = @intCast(u8, f_be >> 8 & 0xFF);
-        zs.buf[zs.pos + 3] = @intCast(u8, f_be >> 16 & 0xFF);
-        zs.buf[zs.pos + 4] = @intCast(u8, f_be >> 24 & 0xFF);
+        zs.buf[zs.pos + 1] = @intCast(u8, fu_be & 0x7F);
+        zs.buf[zs.pos + 2] = @intCast(u8, fu_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, fu_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, fu_be >> 24 & 0xFF);
         zs.pos += 5;
 
         return 5;
@@ -355,7 +360,7 @@ const ZpackStream = struct {
         return s.len + 1;
     }
 
-    pub fn init(alligator: *Allocator) !ZpackStream {
+    pub fn init(alligator: Allocator) !ZpackStream {
         var buff: []u8 = undefined;
         const cap: usize = 2;
         buff = try alligator.alloc(u8, cap); // XXX: magic
