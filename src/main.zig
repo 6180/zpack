@@ -23,6 +23,7 @@ pub fn main() anyerror!void {
     _ = try zs.packInt32(0x1CED1337);
     _ = try zs.packInt64(0x1ECA1BABEFECA1BA);
     _ = try zs.packFloat32(3.14);
+    _ = try zs.packFloat32(13376420.69420);
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
 
@@ -90,6 +91,12 @@ const ZpackStream = struct {
                 0xCA => {
                     std.log.info("Float32: {e}", .{ 
                         @bitCast(f32, beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24)))
+                    });
+                    i += 4;
+                },
+                0xCB => {
+                    std.log.info("Float64: {e}", .{ 
+                        @bitCast(f64, beCast(zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56)))
                     });
                     i += 4;
                 },
@@ -328,8 +335,6 @@ const ZpackStream = struct {
         var fu_be: u32 = beCast(@bitCast(u32, f));
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
-        std.log.info("XXXXX {e} {X}", .{ f, fu_be });
-
         zs.buf[zs.pos] = 0xCA;
         zs.buf[zs.pos + 1] = @intCast(u8, fu_be & 0x7F);
         zs.buf[zs.pos + 2] = @intCast(u8, fu_be >> 8 & 0xFF);
@@ -338,6 +343,25 @@ const ZpackStream = struct {
         zs.pos += 5;
 
         return 5;
+    }
+    /// Writes a 64-bit floating point number to the object stream.
+    /// Returns the number of bytes written (always 9).
+    pub fn packFloat64(zs: *ZpackStream, f: f64) !usize {
+        var fu_be: u64 = beCast(@bitCast(u64, f));
+        _ = try zs.reallocIfNeeded(zs.pos + 9);
+
+        zs.buf[zs.pos] = 0xCB;
+        zs.buf[zs.pos + 1] = @intCast(u8, fu_be & 0x7F);
+        zs.buf[zs.pos + 2] = @intCast(u8, fu_be >> 8 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, fu_be >> 16 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, fu_be >> 24 & 0xFF);
+        zs.buf[zs.pos + 5] = @intCast(u8, fu_be >> 32 & 0xFF);
+        zs.buf[zs.pos + 6] = @intCast(u8, fu_be >> 40 & 0xFF);
+        zs.buf[zs.pos + 7] = @intCast(u8, fu_be >> 48 & 0xFF);
+        zs.buf[zs.pos + 8] = @intCast(u8, fu_be >> 54 & 0xFF);
+        zs.pos += 9;
+
+        return 9;
     }
     /// Writes a byte array with a max len of 31 to the object stream.
     /// Returns number of bytes written (s.len + 1).
