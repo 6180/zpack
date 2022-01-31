@@ -26,6 +26,7 @@ pub fn main() anyerror!void {
     _ = try zs.packFloat64(133769420.69420);
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
+    _ = try zs.packStr8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
 
     zs.dump();
     zs.hexDump();
@@ -89,15 +90,11 @@ const ZpackStream = struct {
                 0xC2 => std.log.info("Bool: False", .{}),
                 0xC3 => std.log.info("Bool: True", .{}),
                 0xCA => {
-                    std.log.info("Float32: {e}", .{ 
-                        @bitCast(f32, beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24)))
-                    });
+                    std.log.info("Float32: {e}", .{@bitCast(f32, beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24)))});
                     i += 4;
                 },
                 0xCB => {
-                    std.log.info("Float64: {e}", .{ 
-                        @bitCast(f64, beCast(zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56)))
-                    });
+                    std.log.info("Float64: {e}", .{@bitCast(f64, beCast(zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56)))});
                     i += 4;
                 },
                 0xCC => {
@@ -131,6 +128,12 @@ const ZpackStream = struct {
                 0xD3 => {
                     std.log.info("Int64: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(i64, zs.buf[i + 1]) << 8) + (@intCast(i64, zs.buf[i + 2]) << 16) + (@intCast(i64, zs.buf[i + 3]) << 24) + (@intCast(i64, zs.buf[i + 4]) << 32) + (@intCast(i64, zs.buf[i + 5]) << 40) + (@intCast(i64, zs.buf[i + 6]) << 48) + (@intCast(i64, zs.buf[i + 7]) << 56))});
                     i += 8;
+                },
+                0xD9 => {
+                    const len: u8 = zs.buf[i + 1];
+                    std.log.info("{d}", .{len});
+                    std.log.info("Str8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 1 .. i + 1 + len] });
+                    i += len + 1;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
                 else => std.log.info("Unknown tag: {X}", .{tag}),
@@ -377,11 +380,27 @@ const ZpackStream = struct {
 
         zs.buf[zs.pos] = tag;
         std.mem.copy(u8, zs.buf[zs.pos + 1 ..], s);
-        zs.buf[zs.pos + 1] = s[0];
-        zs.buf[zs.pos + 2] = s[1];
         zs.pos += (1 + s.len);
 
         return s.len + 1;
+    }
+
+    pub fn packStr8(zs: *ZpackStream, s: []const u8) !usize {
+        var tag: u8 = 0xD9;
+
+        if (s.len > 255)
+            return error.StringTooLong;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 2 + s.len);
+
+        zs.buf[zs.pos] = tag;
+        zs.buf[zs.pos + 1] = @intCast(u8, s.len);
+        std.log.info("{d}", .{s.len});
+        std.log.info("asshole {d}", .{"I wish, I wish, I wish I was a fish. This string is 71 characters long.".len});
+        std.mem.copy(u8, zs.buf[zs.pos + 2 ..], s);
+        zs.pos += (2 + s.len);
+
+        return s.len + 2;
     }
 
     pub fn init(alligator: Allocator) !ZpackStream {
