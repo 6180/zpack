@@ -130,7 +130,7 @@ const ZpackStream = struct {
                     i += 8;
                 },
                 0xD9 => {
-                    const len: u8 = zs.buf[i + 1];
+                    const len: u8 = zs.buf[i];
                     std.log.info("{d}", .{len});
                     std.log.info("Str8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 1 .. i + 1 + len] });
                     i += len + 1;
@@ -396,7 +396,6 @@ const ZpackStream = struct {
         zs.buf[zs.pos] = tag;
         zs.buf[zs.pos + 1] = @intCast(u8, s.len);
         std.log.info("{d}", .{s.len});
-        std.log.info("asshole {d}", .{"I wish, I wish, I wish I was a fish. This string is 71 characters long.".len});
         std.mem.copy(u8, zs.buf[zs.pos + 2 ..], s);
         zs.pos += (2 + s.len);
 
