@@ -23,7 +23,7 @@ pub fn main() anyerror!void {
     _ = try zs.packInt32(0x1CED1337);
     _ = try zs.packInt64(0x1ECA1BABEFECA1BA);
     _ = try zs.packFloat32(3.14);
-    _ = try zs.packFloat32(13376420.69420);
+    _ = try zs.packFloat64(133769420.69420);
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
 
@@ -358,7 +358,7 @@ const ZpackStream = struct {
         zs.buf[zs.pos + 5] = @intCast(u8, fu_be >> 32 & 0xFF);
         zs.buf[zs.pos + 6] = @intCast(u8, fu_be >> 40 & 0xFF);
         zs.buf[zs.pos + 7] = @intCast(u8, fu_be >> 48 & 0xFF);
-        zs.buf[zs.pos + 8] = @intCast(u8, fu_be >> 54 & 0xFF);
+        zs.buf[zs.pos + 8] = @intCast(u8, fu_be >> 56 & 0xFF);
         zs.pos += 9;
 
         return 9;
