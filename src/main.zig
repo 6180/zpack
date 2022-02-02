@@ -29,9 +29,12 @@ pub fn main() anyerror!void {
     _ = try zs.packStr8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
     _ = try zs.packStr16("I hate the way that one race does that one thing.  Terrible.  This string is 133 characters long and it better fucking stay that way.");
     _ = try zs.packStr32("saldkjfhasldkjfhal;skdjhflsakjdhfkajdshflaksjdfhlaiusjhdfoashcdnakjsdfliasjdnpakjsdnvcoaisjefnposidjfp asdfjaskdfjn a;sodkfj;aslkdjf;alkdjf;alskdjf alskdjfasld;jfa; sldkjfapoiehfjpwoingfpe9ifj;a'slkdfuapsl;kfjaoioigjhkrga;nfnrepoaserfkjahsdfa dfask;d.  I hate the way that one race does that one thing.  Terrible.  This string is 386 characters long and it better fucking stay that way.");
+    _ = try zs.packBin8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
+    _ = try zs.packBin16("I hate the way that one race does that one thing.  Terrible.  This string is 133 characters long and it better fucking stay that way.");
+    _ = try zs.packBin32("saldkjfhasldkjfhal;skdjhflsakjdhfkajdshflaksjdfhlaiusjhdfoashcdnakjsdfliasjdnpakjsdnvcoaisjefnposidjfp asdfjaskdfjn a;sodkfj;aslkdjf;alkdjf;alskdjf alskdjfasld;jfa; sldkjfapoiehfjpwoingfpe9ifj;a'slkdfuapsl;kfjaoioigjhkrga;nfnrepoaserfkjahsdfa dfask;d.  I hate the way that one race does that one thing.  Terrible.  This string is 386 characters long and it better fucking stay that way.");
 
     zs.dump();
-    zs.hexDump();
+    // zs.hexDump();
 }
 // Does a byte-swap on LE machines, an intCast on BE machines.
 // !!! The programmer must make sure `dest_type` is large enough to hold the
@@ -91,13 +94,32 @@ const ZpackStream = struct {
                 0xC0 => std.log.info("nil", .{}),
                 0xC2 => std.log.info("Bool: False", .{}),
                 0xC3 => std.log.info("Bool: True", .{}),
+                0xC4 => {
+                    const len: u8 = zs.buf[i];
+                    std.log.info("Bin8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 1 .. i + 1 + len] });
+                    i += len + 1;
+                },
+                0xC5 => {
+                    var len: u16 = @as(u16, zs.buf[i]) << 8;
+                    len |= zs.buf[i + 1];
+                    std.log.info("Bin16: len: {d}, \"{s}\"", .{ len, zs.buf[i + 2 .. i + 2 + len] });
+                    i += len + 2;
+                },
+                0xC6 => {
+                    var len: u32 = @as(u32, zs.buf[i]) << 24;
+                    len |= @as(u32, zs.buf[i + 1]) << 16;
+                    len |= @as(u32, zs.buf[i + 2]) << 8;
+                    len |= zs.buf[i + 3];
+                    std.log.info("Bin32: len: {d}, \"{s}\"", .{ len, zs.buf[i + 4 .. i + 4 + len] });
+                    i += len + 4;
+                },
                 0xCA => {
                     std.log.info("Float32: {e}", .{@bitCast(f32, beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24)))});
                     i += 4;
                 },
                 0xCB => {
                     std.log.info("Float64: {e}", .{@bitCast(f64, beCast(zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56)))});
-                    i += 4;
+                    i += 8;
                 },
                 0xCC => {
                     std.log.info("Uint8: {d}", .{zs.buf[i]});
@@ -137,8 +159,7 @@ const ZpackStream = struct {
                     i += len + 1;
                 },
                 0xDA => {
-                    var len: u16 = zs.buf[i];
-                    len <<= 8; // TODO: change
+                    var len: u16 = @as(u16, zs.buf[i]) << 8;
                     len |= zs.buf[i + 1];
                     std.log.info("Str16: len: {d}, \"{s}\"", .{ len, zs.buf[i + 2 .. i + 2 + len] });
                     i += len + 2;
@@ -436,6 +457,58 @@ const ZpackStream = struct {
 
     pub fn packStr32(zs: *ZpackStream, s: []const u8) !usize {
         var tag: u8 = 0xDB;
+
+        if (s.len > 4294967295)
+            return error.StringTooLong;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 5 + s.len);
+
+        zs.buf[zs.pos] = tag;
+        zs.buf[zs.pos + 1] = @intCast(u8, s.len >> 24 & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, s.len >> 16 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, s.len >> 8 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, s.len & 0xFF);
+        std.mem.copy(u8, zs.buf[zs.pos + 5 ..], s);
+        zs.pos += (5 + s.len);
+
+        return s.len + 5;
+    }
+
+    pub fn packBin8(zs: *ZpackStream, s: []const u8) !usize {
+        var tag: u8 = 0xC4;
+
+        if (s.len > 255)
+            return error.StringTooLong;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 2 + s.len);
+
+        zs.buf[zs.pos] = tag;
+        zs.buf[zs.pos + 1] = @intCast(u8, s.len);
+        std.mem.copy(u8, zs.buf[zs.pos + 2 ..], s);
+        zs.pos += (2 + s.len);
+
+        return s.len + 2;
+    }
+
+    pub fn packBin16(zs: *ZpackStream, s: []const u8) !usize {
+        var tag: u8 = 0xC5;
+
+        if (s.len > 65535)
+            return error.StringTooLong;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 3 + s.len);
+
+        zs.buf[zs.pos] = tag;
+        zs.buf[zs.pos + 1] = @intCast(u8, s.len >> 8 & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, s.len & 0xFF);
+        std.mem.copy(u8, zs.buf[zs.pos + 3 ..], s);
+        zs.pos += (3 + s.len);
+
+        return s.len + 3;
+    }
+
+    pub fn packBin32(zs: *ZpackStream, s: []const u8) !usize {
+        var tag: u8 = 0xC6;
 
         if (s.len > 4294967295)
             return error.StringTooLong;
