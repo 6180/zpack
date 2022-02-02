@@ -27,7 +27,8 @@ pub fn main() anyerror!void {
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
     _ = try zs.packStr8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
-    _ = try zs.packStr16("I hate the way that one race does that one thing.  Terrible.  This string is XXX characters long and it better fucking stay that way.");
+    _ = try zs.packStr16("I hate the way that one race does that one thing.  Terrible.  This string is 133 characters long and it better fucking stay that way.");
+    _ = try zs.packStr32("saldkjfhasldkjfhal;skdjhflsakjdhfkajdshflaksjdfhlaiusjhdfoashcdnakjsdfliasjdnpakjsdnvcoaisjefnposidjfp asdfjaskdfjn a;sodkfj;aslkdjf;alkdjf;alskdjf alskdjfasld;jfa; sldkjfapoiehfjpwoingfpe9ifj;a'slkdfuapsl;kfjaoioigjhkrga;nfnrepoaserfkjahsdfa dfask;d.  I hate the way that one race does that one thing.  Terrible.  This string is 386 characters long and it better fucking stay that way.");
 
     zs.dump();
     zs.hexDump();
@@ -137,10 +138,18 @@ const ZpackStream = struct {
                 },
                 0xDA => {
                     var len: u16 = zs.buf[i];
-                    len <<= 8;
+                    len <<= 8; // TODO: change
                     len |= zs.buf[i + 1];
-                    std.log.info("Str8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 2 .. i + 2 + len] });
+                    std.log.info("Str16: len: {d}, \"{s}\"", .{ len, zs.buf[i + 2 .. i + 2 + len] });
                     i += len + 2;
+                },
+                0xDB => {
+                    var len: u32 = @as(u32, zs.buf[i]) << 24;
+                    len |= @as(u32, zs.buf[i + 1]) << 16;
+                    len |= @as(u32, zs.buf[i + 2]) << 8;
+                    len |= zs.buf[i + 3];
+                    std.log.info("Str32: len: {d}, \"{s}\"", .{ len, zs.buf[i + 4 .. i + 4 + len] });
+                    i += len + 4;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
                 else => std.log.info("Unknown tag: {X}", .{tag}),
@@ -423,6 +432,25 @@ const ZpackStream = struct {
         zs.pos += (3 + s.len);
 
         return s.len + 3;
+    }
+
+    pub fn packStr32(zs: *ZpackStream, s: []const u8) !usize {
+        var tag: u8 = 0xDB;
+
+        if (s.len > 4294967295)
+            return error.StringTooLong;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 5 + s.len);
+
+        zs.buf[zs.pos] = tag;
+        zs.buf[zs.pos + 1] = @intCast(u8, s.len >> 24 & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, s.len >> 16 & 0xFF);
+        zs.buf[zs.pos + 3] = @intCast(u8, s.len >> 8 & 0xFF);
+        zs.buf[zs.pos + 4] = @intCast(u8, s.len & 0xFF);
+        std.mem.copy(u8, zs.buf[zs.pos + 5 ..], s);
+        zs.pos += (5 + s.len);
+
+        return s.len + 5;
     }
 
     pub fn init(alligator: Allocator) !ZpackStream {
