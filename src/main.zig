@@ -27,6 +27,7 @@ pub fn main() anyerror!void {
     _ = try zs.packFixStr("Memes");
     _ = try zs.packFixStr("school!");
     _ = try zs.packStr8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
+    _ = try zs.packStr16("I hate the way that one race does that one thing.  Terrible.  This string is XXX characters long and it better fucking stay that way.");
 
     zs.dump();
     zs.hexDump();
@@ -131,9 +132,15 @@ const ZpackStream = struct {
                 },
                 0xD9 => {
                     const len: u8 = zs.buf[i];
-                    std.log.info("{d}", .{len});
                     std.log.info("Str8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 1 .. i + 1 + len] });
                     i += len + 1;
+                },
+                0xDA => {
+                    var len: u16 = zs.buf[i];
+                    len <<= 8;
+                    len |= zs.buf[i + 1];
+                    std.log.info("Str8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 2 .. i + 2 + len] });
+                    i += len + 2;
                 },
                 0xE0...0xFF => std.log.info("Negative Fixint: -{d}", .{tag & 0b0001_1111}),
                 else => std.log.info("Unknown tag: {X}", .{tag}),
@@ -395,11 +402,27 @@ const ZpackStream = struct {
 
         zs.buf[zs.pos] = tag;
         zs.buf[zs.pos + 1] = @intCast(u8, s.len);
-        std.log.info("{d}", .{s.len});
         std.mem.copy(u8, zs.buf[zs.pos + 2 ..], s);
         zs.pos += (2 + s.len);
 
         return s.len + 2;
+    }
+
+    pub fn packStr16(zs: *ZpackStream, s: []const u8) !usize {
+        var tag: u8 = 0xDA;
+
+        if (s.len > 65535)
+            return error.StringTooLong;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 3 + s.len);
+
+        zs.buf[zs.pos] = tag;
+        zs.buf[zs.pos + 1] = @intCast(u8, s.len >> 8 & 0xFF);
+        zs.buf[zs.pos + 2] = @intCast(u8, s.len & 0xFF);
+        std.mem.copy(u8, zs.buf[zs.pos + 3 ..], s);
+        zs.pos += (3 + s.len);
+
+        return s.len + 3;
     }
 
     pub fn init(alligator: Allocator) !ZpackStream {
