@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
+const meta = std.meta;
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -32,8 +33,9 @@ pub fn main() anyerror!void {
     _ = try zs.packBin8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
     _ = try zs.packBin16("I hate the way that one race does that one thing.  Terrible.  This string is 133 characters long and it better fucking stay that way.");
     _ = try zs.packBin32("saldkjfhasldkjfhal;skdjhflsakjdhfkajdshflaksjdfhlaiusjhdfoashcdnakjsdfliasjdnpakjsdnvcoaisjefnposidjfp asdfjaskdfjn a;sodkfj;aslkdjf;alkdjf;alskdjf alskdjfasld;jfa; sldkjfapoiehfjpwoingfpe9ifj;a'slkdfuapsl;kfjaoioigjhkrga;nfnrepoaserfkjahsdfa dfask;d.  I hate the way that one race does that one thing.  Terrible.  This string is 386 characters long and it better fucking stay that way.");
+    _ = try zs.packFixArray(.{ @as(u8, 27), "cock", true, 3.14, 6942069, null, .{ false, 69 } });
 
-    zs.dump();
+    // zs.dump();
     // zs.hexDump();
 }
 // Does a byte-swap on LE machines, an intCast on BE machines.
@@ -524,6 +526,93 @@ const ZpackStream = struct {
         zs.pos += (5 + s.len);
 
         return s.len + 5;
+    }
+
+    // pub fn packStruct(zs: *ZpackStream, st: anytype) !usize {
+
+    // }
+
+    pub fn packFixArray(zs: *ZpackStream, args: anytype) !usize {
+        var tag: u8 = 0b1001_0000;
+
+        const ArgsType = @TypeOf(args);
+
+        // XXX: add support for arrays, that should have been the obvious starting point
+        if (@typeInfo(ArgsType) != .Struct) {
+            // @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
+            return error.InvalidArgument;
+        }
+
+        const fields_info = meta.fields(ArgsType);
+        if (fields_info.len > 15) {
+            return error.TooManyArgs;
+        }
+
+        tag |= @as(u8, fields_info.len);
+        // write the tag to the buffer
+        _ = try zs.reallocIfNeeded(zs.pos + 1);
+        zs.buf[zs.pos] = tag;
+
+        var bytes_written: usize = 1;
+
+        inline for (args) |v, i| {
+            switch (@typeInfo(@TypeOf(v))) {
+                .Null => std.log.info("Field {d}, Null", .{i}),
+                .Int => |ti| {
+                    std.log.info("Field {d}, Int {d}", .{ i, v });
+                    if (ti.signedness == .unsigned) {
+                        bytes_written += switch (v) {
+                            0x00...0xFF => try zs.packUint8(v),
+                            0x100...0xFFFF => try zs.packUint16(v),
+                            0x1_0000...0xFFFF_FFFF => try zs.packUint32(v),
+                            0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packUint64(v),
+                            else => return error.InvalidArgument, // XXX: u128 ext
+                        };
+                    } else {
+                        bytes_written += switch (v.bits) {
+                            -0x80...0x7F => try zs.packInt8(v),
+                            -0x8000...0x7FFF => try zs.packInt16(v),
+                            -0x8000_0000...0x7FFF_FFFF => try zs.packInt32(v),
+                            -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.packInt64(v),
+                            else => return error.InvalidArgument, // XXX: u128 ext
+                        };
+                    }
+                },
+                .ComptimeInt => {
+                    std.log.info("Field {d}, ComptimeInt {d}", .{ i, v });
+                    if (v >= 0) {
+                        bytes_written += switch (v) {
+                            0x00...0xFF => try zs.packUint8(v),
+                            0x100...0xFFFF => try zs.packUint16(v),
+                            0x1_0000...0xFFFF_FFFF => try zs.packUint32(v),
+                            0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packUint64(v),
+                            else => return error.InvalidArgument, // XXX: u128 ext
+                        };
+                    } else {
+                        bytes_written += switch (v.bits) {
+                            -0x80...0x7F => try zs.packInt8(v),
+                            -0x8000...0x7FFF => try zs.packInt16(v),
+                            -0x8000_0000...0x7FFF_FFFF => try zs.packInt32(v),
+                            -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.packInt64(v),
+                            else => return error.InvalidArgument, // XXX: u128 ext
+                        };
+                    }
+                },
+                .Float, .ComptimeFloat => std.log.info("Field {d}, Float {e}", .{ i, v }),
+                .Bool => std.log.info("Field {d}, Bool {any}", .{ i, v }),
+                .Struct => std.log.info("Field {d}, Struct {any}", .{ i, v }),
+                else => {
+                    if (meta.trait.isZigString(@TypeOf(v))) {
+                        std.log.info("Field {d}, String ({d}) {s}", .{ i, v.len, v });
+                    } else {
+                        std.log.info("Field {d}, Unsupported type {s}", .{ i, @typeName(@TypeOf(v)) });
+                    }
+                },
+            }
+        }
+
+        _ = zs;
+        return 1337;
     }
 
     pub fn init(alligator: Allocator) !ZpackStream {
