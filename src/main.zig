@@ -33,7 +33,7 @@ pub fn main() anyerror!void {
     _ = try zs.packBin8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
     _ = try zs.packBin16("I hate the way that one race does that one thing.  Terrible.  This string is 133 characters long and it better fucking stay that way.");
     _ = try zs.packBin32("saldkjfhasldkjfhal;skdjhflsakjdhfkajdshflaksjdfhlaiusjhdfoashcdnakjsdfliasjdnpakjsdnvcoaisjefnposidjfp asdfjaskdfjn a;sodkfj;aslkdjf;alkdjf;alskdjf alskdjfasld;jfa; sldkjfapoiehfjpwoingfpe9ifj;a'slkdfuapsl;kfjaoioigjhkrga;nfnrepoaserfkjahsdfa dfask;d.  I hate the way that one race does that one thing.  Terrible.  This string is 386 characters long and it better fucking stay that way.");
-    _ = try zs.packStruct(.{ @as(u8, 27), "cock", true, @as(f16, 3.14), 6942069, @as(f64, 133769420.0539) });
+    _ = try zs.packStruct(.{ @as(u8, 27), "cock", true, @as(f16, 3.14), 6942069, @as(f64, 133769420.0539), null, .{ null, 1337, @as(f16, 6.9) } });
 
     zs.dump();
     // zs.hexDump();
@@ -586,11 +586,9 @@ const ZpackStream = struct {
                 },
                 .ComptimeFloat => @compileError("Comptime Floats not supported."), // TODO: f128 ext
                 .Bool => try zs.packBool(v),
-                .Struct => std.log.info("Field {d}, Struct {any}", .{ i, v }),
+                .Struct => try zs.packStruct(v),
+                .Null => try zs.packNil(),
                 else => blk: {
-                    // if (@TypeOf(v) == @TypeOf(null)) {
-                    //     break :blk try zs.packNil();
-                    // } else 
                     if (meta.trait.isZigString(@TypeOf(v))) {
                         std.log.info("Field {d}, String ({d}) {s}", .{ i, v.len, v });
                         break :blk switch (v.len) {
