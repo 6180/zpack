@@ -33,9 +33,9 @@ pub fn main() anyerror!void {
     _ = try zs.packBin8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
     _ = try zs.packBin16("I hate the way that one race does that one thing.  Terrible.  This string is 133 characters long and it better fucking stay that way.");
     _ = try zs.packBin32("saldkjfhasldkjfhal;skdjhflsakjdhfkajdshflaksjdfhlaiusjhdfoashcdnakjsdfliasjdnpakjsdnvcoaisjefnposidjfp asdfjaskdfjn a;sodkfj;aslkdjf;alkdjf;alskdjf alskdjfasld;jfa; sldkjfapoiehfjpwoingfpe9ifj;a'slkdfuapsl;kfjaoioigjhkrga;nfnrepoaserfkjahsdfa dfask;d.  I hate the way that one race does that one thing.  Terrible.  This string is 386 characters long and it better fucking stay that way.");
-    _ = try zs.packFixArray(.{ @as(u8, 27), "cock", true, 3.14, 6942069, null, .{ false, 69 } });
+    _ = try zs.packStruct(.{ @as(u8, 27), "cock", true, @as(f16, 3.14), 6942069, @as(f64, 133769420.0539) });
 
-    // zs.dump();
+    zs.dump();
     // zs.hexDump();
 }
 // Does a byte-swap on LE machines, an intCast on BE machines.
@@ -179,7 +179,7 @@ const ZpackStream = struct {
             }
         }
     }
-    // XXX: redo this, hex formatting still works apparently, was getting deprecated errors when I wrote this.
+    // TODO: redo this, hex formatting still works apparently, was getting deprecated errors when I wrote this.
     pub fn hexDump(zs: *ZpackStream) void {
         const alph = "0123456789ABCDEF";
         var buf: [16 * 3]u8 = .{0} ** 48;
@@ -528,97 +528,98 @@ const ZpackStream = struct {
         return s.len + 5;
     }
 
-    // pub fn packStruct(zs: *ZpackStream, st: anytype) !usize {
+    pub fn packStruct(zs: *ZpackStream, _struct: anytype) !usize {
+        var bytes_written: usize = 0;
 
-    // }
-
-    pub fn packFixArray(zs: *ZpackStream, args: anytype) !usize {
-        var tag: u8 = 0b1001_0000;
-
-        const ArgsType = @TypeOf(args);
-
-        // XXX: add support for arrays, that should have been the obvious starting point
-        if (@typeInfo(ArgsType) != .Struct) {
-            // @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
-            return error.InvalidArgument;
-        }
-
-        const fields_info = meta.fields(ArgsType);
-        if (fields_info.len > 15) {
-            return error.TooManyArgs;
-        }
-
-        tag |= @as(u8, fields_info.len);
-        // write the tag to the buffer
-        _ = try zs.reallocIfNeeded(zs.pos + 1);
-        zs.buf[zs.pos] = tag;
-
-        var bytes_written: usize = 1;
-
-        inline for (args) |v, i| {
-            switch (@typeInfo(@TypeOf(v))) {
-                .Null => std.log.info("Field {d}, Null", .{i}),
-                .Int => |ti| {
+        // Loop over the fields and pack them
+        inline for (_struct) |v, i| {
+            bytes_written += switch (@typeInfo(@TypeOf(v))) {
+                .Int => |ti| blk: {
                     std.log.info("Field {d}, Int {d}", .{ i, v });
                     if (ti.signedness == .unsigned) {
-                        bytes_written += switch (v) {
+                        break :blk switch (v) {
                             0x00...0xFF => try zs.packUint8(v),
                             0x100...0xFFFF => try zs.packUint16(v),
                             0x1_0000...0xFFFF_FFFF => try zs.packUint32(v),
                             0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packUint64(v),
-                            else => return error.InvalidArgument, // XXX: u128 ext
+                            else => return error.InvalidArgument, // TODO: u128 ext
                         };
-                    } else {
-                        bytes_written += switch (v.bits) {
+                    } else { // ti.signedness == .signed
+                        break :blk switch (v.bits) {
                             -0x80...0x7F => try zs.packInt8(v),
                             -0x8000...0x7FFF => try zs.packInt16(v),
                             -0x8000_0000...0x7FFF_FFFF => try zs.packInt32(v),
                             -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.packInt64(v),
-                            else => return error.InvalidArgument, // XXX: u128 ext
+                            else => return error.InvalidArgument, // TODO: u128 ext
                         };
                     }
                 },
-                .ComptimeInt => {
+                .ComptimeInt => blk: {
                     std.log.info("Field {d}, ComptimeInt {d}", .{ i, v });
-                    if (v >= 0) {
-                        bytes_written += switch (v) {
+
+                    if (v >= 0) { // Treat as unsigned.
+                        break :blk switch (v) {
                             0x00...0xFF => try zs.packUint8(v),
                             0x100...0xFFFF => try zs.packUint16(v),
                             0x1_0000...0xFFFF_FFFF => try zs.packUint32(v),
                             0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packUint64(v),
-                            else => return error.InvalidArgument, // XXX: u128 ext
+                            else => return error.InvalidArgument, // TODO: u128 ext
                         };
-                    } else {
-                        bytes_written += switch (v.bits) {
+                    } else { // Treat as signed.
+                        break :blk switch (v.bits) {
                             -0x80...0x7F => try zs.packInt8(v),
                             -0x8000...0x7FFF => try zs.packInt16(v),
                             -0x8000_0000...0x7FFF_FFFF => try zs.packInt32(v),
                             -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.packInt64(v),
-                            else => return error.InvalidArgument, // XXX: u128 ext
+                            else => return error.InvalidArgument, // TODO: i128 ext
                         };
                     }
                 },
-                .Float, .ComptimeFloat => std.log.info("Field {d}, Float {e}", .{ i, v }),
-                .Bool => std.log.info("Field {d}, Bool {any}", .{ i, v }),
+                .Float => |fti| blk: {
+                    std.log.info("Field {d}, Float {d}", .{ i, v });
+
+                    break :blk switch (fti.bits) {
+                        16, 32 => try zs.packFloat32(v),
+                        64 => try zs.packFloat64(v),
+                        else => return error.InvalidArgument, // TODO: f128 ext
+                    };
+                },
+                .ComptimeFloat => @compileError("Comptime Floats not supported."), // TODO: f128 ext
+                .Bool => try zs.packBool(v),
                 .Struct => std.log.info("Field {d}, Struct {any}", .{ i, v }),
-                else => {
+                else => blk: {
+                    // if (@TypeOf(v) == @TypeOf(null)) {
+                    //     break :blk try zs.packNil();
+                    // } else 
                     if (meta.trait.isZigString(@TypeOf(v))) {
                         std.log.info("Field {d}, String ({d}) {s}", .{ i, v.len, v });
+                        break :blk switch (v.len) {
+                            0...31 => try zs.packFixStr(v),
+                            32...255 => try zs.packStr8(v),
+                            256...65535 => try zs.packStr16(v),
+                            65536...4294967295 => try zs.packStr32(v),
+                            else => return error.StringTooLong,
+                        };
                     } else {
                         std.log.info("Field {d}, Unsupported type {s}", .{ i, @typeName(@TypeOf(v)) });
                     }
+                    return error.UnsupportedType;
                 },
-            }
-        }
+            }; // switch
+        } // inline for
 
         _ = zs;
-        return 1337;
+        return bytes_written;
     }
+
+    // pub fn packFixArray(zs: *ZpackStream, args: anytype) !usize {
+
+// }
 
     pub fn init(alligator: Allocator) !ZpackStream {
         var buff: []u8 = undefined;
         const cap: usize = 2;
-        buff = try alligator.alloc(u8, cap); // XXX: magic
+        buff = try alligator.alloc(u8, cap); // TODO: magic
 
         return ZpackStream{
             .ator = alligator,
