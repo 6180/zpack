@@ -3,11 +3,25 @@ const Allocator = std.mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const meta = std.meta;
 
-const ZpackError = error{
+pub const ZpackError = error{
     InvalidArgument,
     UnsupportedType,
     StringTooLong,
     OutOfMemory,
+};
+
+pub const Timestamp32 = struct {
+    seconds: u32,
+};
+
+pub const Timestamp64 = struct {
+    nanoseconds: u30,
+    seconds: u34,
+};
+
+pub const Timestamp96 = struct {
+    nanoseconds: u32,
+    seconds: i64,
 };
 
 pub fn main() ZpackError!void {
@@ -22,16 +36,16 @@ pub fn main() ZpackError!void {
     _ = try zs.packBool(false);
     _ = try zs.packPosFixInt(112);
     _ = try zs.packNegFixInt(23);
-    _ = try zs.packUint8(42);
-    _ = try zs.packUint16(1337);
-    _ = try zs.packUint32(0xDEADBEEF);
-    _ = try zs.packUint64(0xCAFEB00BDEADBEEF);
-    _ = try zs.packInt8(42);
-    _ = try zs.packInt16(420);
-    _ = try zs.packInt32(0x1CED1337);
-    _ = try zs.packInt64(0x1ECA1BABEFECA1BA);
-    _ = try zs.packFloat32(3.14);
-    _ = try zs.packFloat64(133769420.69420);
+    _ = try zs.packU8(42);
+    _ = try zs.packU16(1337);
+    _ = try zs.packU32(0xDEADBEEF);
+    _ = try zs.packU64(0xCAFEB00BDEADBEEF);
+    _ = try zs.packI8(42);
+    _ = try zs.packI16(420);
+    _ = try zs.packI32(0x1CED1337);
+    _ = try zs.PackI64(0x1ECA1BABEFECA1BA);
+    _ = try zs.packF32(3.14);
+    _ = try zs.packF64(133769420.69420);
     // _ = try zs.packFixStr("Memes");
     // _ = try zs.packFixStr("school!");
     // _ = try zs.packStr8("I wish, I wish, I wish I was a fish. This string is 71 characters long.");
@@ -45,9 +59,11 @@ pub fn main() ZpackError!void {
     _ = try zs.packAny(null);
     const test_arr: [10]u32 = .{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     _ = try zs.packFixArray(test_arr);
+    const ts: Timestamp32 = .{ .seconds=1337 };
+    _ = try zs.packTimestamp32(ts);
 
     zs.dump();
-    // zs.hexDump();
+    zs.hexDump();
 }
 // Does a byte-swap on LE machines, an intCast on BE machines.
 // !!! The programmer must make sure `dest_type` is large enough to hold the
@@ -166,6 +182,11 @@ const ZpackStream = struct {
                     std.log.info("Int64: 0x{0X} ({0d})", .{beCast(zs.buf[i] + (@intCast(i64, zs.buf[i + 1]) << 8) + (@intCast(i64, zs.buf[i + 2]) << 16) + (@intCast(i64, zs.buf[i + 3]) << 24) + (@intCast(i64, zs.buf[i + 4]) << 32) + (@intCast(i64, zs.buf[i + 5]) << 40) + (@intCast(i64, zs.buf[i + 6]) << 48) + (@intCast(i64, zs.buf[i + 7]) << 56))});
                     i += 8;
                 },
+                0xD6 => {
+                    i += 1; // ext marker
+                    std.log.info("Timestamp32: {d}s", .{beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
+                    i += 4;
+                },
                 0xD9 => {
                     const len: u8 = zs.buf[i];
                     std.log.info("Str8: len: {d}, \"{s}\"", .{ len, zs.buf[i + 1 .. i + 1 + len] });
@@ -267,7 +288,7 @@ const ZpackStream = struct {
 
     /// Writes an 8-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 2).
-    pub fn packUint8(zs: *ZpackStream, n: u8) ZpackError!usize {
+    pub fn packU8(zs: *ZpackStream, n: u8) ZpackError!usize {
         _ = try zs.reallocIfNeeded(zs.pos + 2);
 
         zs.buf[zs.pos] = 0xCC;
@@ -278,7 +299,7 @@ const ZpackStream = struct {
     }
     /// Writes a 16-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 3).
-    pub fn packUint16(zs: *ZpackStream, n: u16) ZpackError!usize {
+    pub fn packU16(zs: *ZpackStream, n: u16) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 3);
 
@@ -291,7 +312,7 @@ const ZpackStream = struct {
     }
     /// Writes a 32-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 5).
-    pub fn packUint32(zs: *ZpackStream, n: u32) ZpackError!usize {
+    pub fn packU32(zs: *ZpackStream, n: u32) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
@@ -306,7 +327,7 @@ const ZpackStream = struct {
     }
     /// Writes a 64-bit unsigned integer to the object stream.
     /// Returns number of bytes written (always 9).
-    pub fn packUint64(zs: *ZpackStream, n: u64) ZpackError!usize {
+    pub fn packU64(zs: *ZpackStream, n: u64) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
@@ -325,7 +346,7 @@ const ZpackStream = struct {
     }
     /// Writes an 8-bit signed integer to the object stream.
     /// Returns number of bytes written (always 2).
-    pub fn packInt8(zs: *ZpackStream, n: i8) ZpackError!usize {
+    pub fn packI8(zs: *ZpackStream, n: i8) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 2);
 
@@ -337,7 +358,7 @@ const ZpackStream = struct {
     }
     /// Writes a 16-bit signed integer to the object stream.
     /// Returns number of bytes written (always 3).
-    pub fn packInt16(zs: *ZpackStream, n: i16) ZpackError!usize {
+    pub fn packI16(zs: *ZpackStream, n: i16) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 3);
 
@@ -350,7 +371,7 @@ const ZpackStream = struct {
     }
     /// Writes a 32-bit signed integer to the object stream.
     /// Returns number of bytes written (always 5).
-    pub fn packInt32(zs: *ZpackStream, n: i32) ZpackError!usize {
+    pub fn packI32(zs: *ZpackStream, n: i32) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
@@ -365,7 +386,7 @@ const ZpackStream = struct {
     }
     /// Writes a 64-bit signed integer to the object stream.
     /// Returns number of bytes written (always 9).
-    pub fn packInt64(zs: *ZpackStream, n: i64) ZpackError!usize {
+    pub fn PackI64(zs: *ZpackStream, n: i64) ZpackError!usize {
         var n_be = beCast(n);
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
@@ -384,7 +405,7 @@ const ZpackStream = struct {
     }
     /// Writes a 32-bit floating point number to the object stream.
     /// Returns the number of bytes written (always 5).
-    pub fn packFloat32(zs: *ZpackStream, f: f32) ZpackError!usize {
+    pub fn packF32(zs: *ZpackStream, f: f32) ZpackError!usize {
         var fu_be: u32 = beCast(@bitCast(u32, f));
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
@@ -399,7 +420,7 @@ const ZpackStream = struct {
     }
     /// Writes a 64-bit floating point number to the object stream.
     /// Returns the number of bytes written (always 9).
-    pub fn packFloat64(zs: *ZpackStream, f: f64) ZpackError!usize {
+    pub fn packF64(zs: *ZpackStream, f: f64) ZpackError!usize {
         var fu_be: u64 = beCast(@bitCast(u64, f));
         _ = try zs.reallocIfNeeded(zs.pos + 9);
 
@@ -539,6 +560,24 @@ const ZpackStream = struct {
         return s.len + 5;
     }
 
+    pub fn packTimestamp32(zs: *ZpackStream, timestamp: Timestamp32) ZpackError!usize {
+        const tag: u8 = 0xD6;
+        const ext_tag: u8 = 0xFF;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 5);
+
+        zs.buf[zs.pos] = @intCast(u8, tag);
+        zs.pos += 1;
+        _ = try zs.packU32(timestamp.seconds);
+        zs.buf[zs.pos - 5] = @intCast(u8, ext_tag);
+
+        return 6;
+    }
+
+    // Accepts any type and tries to pack it into the object stream in the least amount of space.
+    // Supported types are: u0-u64, i1-i64, comptime ints that fit in 64 bits, f16, f32, f64, bool, structs, null, and anything
+    //   isZigString(T) returns true for.
+    // TODO: Add support for arrays, a timestamp object, u/i128, f128,
     pub fn packAny(zs: *ZpackStream, item: anytype) ZpackError!usize {
         var bytes_written: usize = 0;
 
@@ -546,18 +585,18 @@ const ZpackStream = struct {
             .Int => |ti| blk: {
                 if (ti.signedness == .unsigned) {
                     break :blk switch (@as(u128, item)) {
-                        0x00...0xFF => try zs.packUint8(@intCast(u8, item)),
-                        0x100...0xFFFF => try zs.packUint16(@intCast(u16, item)),
-                        0x1_0000...0xFFFF_FFFF => try zs.packUint32(@intCast(u32, item)),
-                        0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packUint64(@intCast(u64, item)),
+                        0x00...0xFF => try zs.packU8(@intCast(u8, item)),
+                        0x100...0xFFFF => try zs.packU16(@intCast(u16, item)),
+                        0x1_0000...0xFFFF_FFFF => try zs.packU32(@intCast(u32, item)),
+                        0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packU64(@intCast(u64, item)),
                         else => return ZpackError.InvalidArgument, // TODO: u128 ext
                     };
                 } else { // ti.signedness == .signed
                     break :blk switch (item.bits) {
-                        -0x80...0x7F => try zs.packInt8(@intCast(i8, item)),
-                        -0x8000...0x7FFF => try zs.packInt16(@intCast(i16, item)),
-                        -0x8000_0000...0x7FFF_FFFF => try zs.packInt32(@intCast(i32, item)),
-                        -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.packInt64(@intCast(i64, item)),
+                        -0x80...0x7F => try zs.packI8(@intCast(i8, item)),
+                        -0x8000...0x7FFF => try zs.packI16(@intCast(i16, item)),
+                        -0x8000_0000...0x7FFF_FFFF => try zs.packI32(@intCast(i32, item)),
+                        -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.PackI64(@intCast(i64, item)),
                         else => return ZpackError.InvalidArgument, // TODO: u128 ext
                     };
                 }
@@ -565,32 +604,32 @@ const ZpackStream = struct {
             .ComptimeInt => blk: {
                 if (item >= 0) { // Treat as unsigned.
                     break :blk switch (item) {
-                        0x00...0xFF => try zs.packUint8(@intCast(u8, item)),
-                        0x100...0xFFFF => try zs.packUint16(@intCast(u16, item)),
-                        0x1_0000...0xFFFF_FFFF => try zs.packUint32(@intCast(u32, item)),
-                        0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packUint64(@intCast(u64, item)),
+                        0x00...0xFF => try zs.packU8(@intCast(u8, item)),
+                        0x100...0xFFFF => try zs.packU16(@intCast(u16, item)),
+                        0x1_0000...0xFFFF_FFFF => try zs.packU32(@intCast(u32, item)),
+                        0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packU64(@intCast(u64, item)),
                         else => return ZpackError.InvalidArgument, // TODO: u128 ext
                     };
                 } else { // Treat as signed.
                     break :blk switch (item.bits) {
-                        -0x80...0x7F => try zs.packInt8(@intCast(i8, item)),
-                        -0x8000...0x7FFF => try zs.packInt16(@intCast(i16, item)),
-                        -0x8000_0000...0x7FFF_FFFF => try zs.packInt32(@intCast(i32, item)),
-                        -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.packInt64(@intCast(i64, item)),
+                        -0x80...0x7F => try zs.packI8(@intCast(i8, item)),
+                        -0x8000...0x7FFF => try zs.packI16(@intCast(i16, item)),
+                        -0x8000_0000...0x7FFF_FFFF => try zs.packI32(@intCast(i32, item)),
+                        -0x8000_0000_0000_0000...0x7FFF_FFFF_FFFF_FFFF => try zs.PackI64(@intCast(i64, item)),
                         else => return ZpackError.InvalidArgument, // TODO: i128 ext
                     };
                 }
             },
             .Float => |fti| blk: {
                 break :blk switch (fti.bits) {
-                    16, 32 => try zs.packFloat32(item),
-                    64 => try zs.packFloat64(item),
+                    16, 32 => try zs.packF32(item),
+                    64 => try zs.packF64(item),
                     else => return ZpackError.InvalidArgument, // TODO: f128 ext
                 };
             },
             .ComptimeFloat => @compileError("Comptime Floats not supported."), // TODO: f128 ext
             .Bool => try zs.packBool(item),
-            .Struct => blk: { // XXX: infinite recursion... loop over fields and pack each.
+            .Struct => blk: {
                 var tmp: usize = 0;
 
                 inline for (item) |v|
@@ -621,15 +660,48 @@ const ZpackStream = struct {
     pub fn packStruct(zs: *ZpackStream, _struct: anytype) ZpackError!usize {
         var bytes_written: usize = 0;
 
-        const s_ti = @typeInfo(@TypeOf(_struct));
-
-        bytes_written += switch (s_ti) {
+        bytes_written += switch (@typeInfo(@TypeOf(_struct))) {
             .Struct => try zs.packAny(_struct),
             .Pointer => @compileLog("Pointers not supported in packStruct() yet.", .{}),
             else => return ZpackError.UnsupportedType,
         };
 
         return bytes_written;
+    }
+
+    pub fn packFixArrT(zs: *ZpackStream, arg: anytype, _type: type) ZpackError!usize {
+        var bytes_written: usize = 0;
+
+        bytes_written += switch (_type) {
+            .Int => try zs.packFixArrI(arg),
+            .ComptimeInt => try zs.packFixArrI(arg),
+            .Float => try zs.packFixArrF(arg),
+            .ComptimeFloat => @compileError("Comptime Floats not supported."), // TODO: f128 ext
+            .Bool => try zs.packFixArrB(arg),
+            .Struct => blk: {
+                var tmp: usize = 0;
+
+                inline for (arg) |v|
+                    tmp += try zs.packAny(v);
+
+                break :blk tmp;
+            },
+            .Null => try zs.packFixArrN(arg),
+            else => blk: {
+                if (meta.trait.isZigString(@TypeOf(arg))) {
+                    break :blk switch (arg.len) {
+                        0...31 => try zs.packFixArrS(arg),
+                        32...255 => try zs.packArr8(arg),
+                        256...65535 => try zs.packArr16(arg),
+                        65536...4294967295 => try zs.packArr32(arg),
+                        else => return ZpackError.StringTooLong,
+                    };
+                } else {
+                    std.log.info("Unsupported type {s}", .{@typeName(@TypeOf(arg))});
+                }
+                return ZpackError.UnsupportedType;
+            },
+        };
     }
 
     pub fn packFixArray(zs: *ZpackStream, args: anytype) ZpackError!usize {
