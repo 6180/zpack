@@ -58,9 +58,12 @@ pub fn main() ZpackError!void {
     _ = try zs.packAny(1337);
     _ = try zs.packAny(null);
     const test_arr: [10]u32 = .{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-    _ = try zs.packFixArray(test_arr);
-    const ts: Timestamp32 = .{ .seconds=1337 };
+    _ = try zs.packFixArrT(test_arr);
+    const ts: Timestamp32 = .{ .seconds = 1337 };
     _ = try zs.packTimestamp32(ts);
+    _ = try zs.packAnyT(null);
+
+    std.log.info("##### {s}", .{@typeName(@TypeOf(null))});
 
     zs.dump();
     zs.hexDump();
@@ -577,7 +580,9 @@ const ZpackStream = struct {
     // Accepts any type and tries to pack it into the object stream in the least amount of space.
     // Supported types are: u0-u64, i1-i64, comptime ints that fit in 64 bits, f16, f32, f64, bool, structs, null, and anything
     //   isZigString(T) returns true for.
+    // Returns the number of bytes written to the stream.
     // TODO: Add support for arrays, a timestamp object, u/i128, f128,
+    // TODO: refactor to be like packAnyT()
     pub fn packAny(zs: *ZpackStream, item: anytype) ZpackError!usize {
         var bytes_written: usize = 0;
 
@@ -647,14 +652,62 @@ const ZpackStream = struct {
                         65536...4294967295 => try zs.packStr32(item),
                         else => return ZpackError.StringTooLong,
                     };
-                } else {
-                    std.log.info("Unsupported type {s}", .{@typeName(@TypeOf(item))});
+                } else { // switch on the type to easily catch lib structs
+                    break :blk switch (@TypeOf(item)) {
+                        Timestamp32 => try zs.packTimestamp32(item),
+                        else => {
+                            std.log.info("Unsupported type {s}", .{@typeName(@TypeOf(item))});
+                            return ZpackError.UnsupportedType;
+                        },
+                    };
                 }
                 return ZpackError.UnsupportedType;
             },
         };
 
         return bytes_written;
+    }
+    // Essentially the same as packAny() but preserves the type information (packAny() will pack a u64{12} using
+    //   packU8(12), packAnyT() will use packU64(12).)
+    // Returns the number of bytes written to the stream.
+    pub fn packAnyT(zs: *ZpackStream, arg: anytype) ZpackError!usize {
+        // var bytes_written: usize = 0;
+
+        // try switching on type first for primitives and library structs
+        return switch (@TypeOf(arg)) {
+            u8 => try zs.packU8(arg),
+            u16 => try zs.packU16(arg),
+            u32 => try zs.packU32(arg),
+            u64 => try zs.packU64(arg),
+            i8 => try zs.packI8(arg),
+            i16 => try zs.packI16(arg),
+            i32 => try zs.packI32(arg),
+            i64 => try zs.packI64(arg),
+            f32 => try zs.packF32(arg),
+            f64 => try zs.packF64(arg),
+            bool => try zs.packBool(arg),
+            Timestamp32 => try zs.packTimestamp32(arg),
+            @Type(.Null) => try zs.packNil(),
+            else => blk: { // string check then switch on type info
+                if (meta.trait.isZigString(@TypeOf(arg))) {
+                    break :blk switch (arg.len) {
+                        0...31 => try zs.packFixStr(arg),
+                        32...255 => try zs.packStr8(arg),
+                        256...65535 => try zs.packStr16(arg),
+                        65536...4294967295 => try zs.packStr32(arg),
+                        else => return ZpackError.StringTooLong,
+                    };
+                } else { // switch on the type to easily catch lib structs
+                    break :blk switch (@typeInfo(@TypeOf(arg))) {
+                        .Struct, .Array => try zs.packAnyT(arg),
+                        else => {
+                            std.log.info("Unsupported type {s}", .{@typeName(@TypeOf(arg))});
+                            return ZpackError.UnsupportedType;
+                        },
+                    };
+                }
+            }, // switch else
+        }; // switch (@TypeOf(arg)) {
     }
 
     pub fn packStruct(zs: *ZpackStream, _struct: anytype) ZpackError!usize {
@@ -669,42 +722,22 @@ const ZpackStream = struct {
         return bytes_written;
     }
 
-    pub fn packFixArrT(zs: *ZpackStream, arg: anytype, _type: type) ZpackError!usize {
+    pub fn packFixArrT(zs: *ZpackStream, arg: anytype) ZpackError!usize {
         var bytes_written: usize = 0;
 
-        bytes_written += switch (_type) {
-            .Int => try zs.packFixArrI(arg),
-            .ComptimeInt => try zs.packFixArrI(arg),
-            .Float => try zs.packFixArrF(arg),
-            .ComptimeFloat => @compileError("Comptime Floats not supported."), // TODO: f128 ext
-            .Bool => try zs.packFixArrB(arg),
-            .Struct => blk: {
-                var tmp: usize = 0;
+        const ti = @typeInfo(@TypeOf(arg));
 
-                inline for (arg) |v|
-                    tmp += try zs.packAny(v);
+        switch (ti) {
+            .Array => {
+                for (arg) |v| bytes_written += try zs.packAnyT(v);
+            },
+            else => return ZpackError.UnsupportedType,
+        }
 
-                break :blk tmp;
-            },
-            .Null => try zs.packFixArrN(arg),
-            else => blk: {
-                if (meta.trait.isZigString(@TypeOf(arg))) {
-                    break :blk switch (arg.len) {
-                        0...31 => try zs.packFixArrS(arg),
-                        32...255 => try zs.packArr8(arg),
-                        256...65535 => try zs.packArr16(arg),
-                        65536...4294967295 => try zs.packArr32(arg),
-                        else => return ZpackError.StringTooLong,
-                    };
-                } else {
-                    std.log.info("Unsupported type {s}", .{@typeName(@TypeOf(arg))});
-                }
-                return ZpackError.UnsupportedType;
-            },
-        };
+        return bytes_written;
     }
 
-    pub fn packFixArray(zs: *ZpackStream, args: anytype) ZpackError!usize {
+    pub fn packFixArr(zs: *ZpackStream, args: anytype) ZpackError!usize {
         var bytes_written: usize = 0;
 
         const ti = @typeInfo(@TypeOf(args));
