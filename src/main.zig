@@ -14,7 +14,7 @@ pub const Timestamp32 = struct {
     seconds: u32,
 };
 
-pub const Timestamp64 = struct {
+pub const Timestamp64 = packed struct {
     nanoseconds: u30,
     seconds: u34,
 };
@@ -59,8 +59,11 @@ pub fn main() ZpackError!void {
     _ = try zs.packAny(null);
     const test_arr: [10]u32 = .{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     _ = try zs.packFixArrT(test_arr);
-    const ts: Timestamp32 = .{ .seconds = 1337 };
-    _ = try zs.packTimestamp32(ts);
+    const ts32: Timestamp32 = .{ .seconds = 1337 };
+    _ = try zs.packTimestamp32(ts32);
+    const ts64: Timestamp64 = .{ .seconds = 69420, .nanoseconds = 42069 };
+    _ = try zs.packTimestamp64(ts64);
+
     _ = try zs.packAnyT(null);
 
     std.log.info("##### {s}", .{@typeName(@TypeOf(null))});
@@ -189,6 +192,13 @@ const ZpackStream = struct {
                     i += 1; // ext marker
                     std.log.info("Timestamp32: {d}s", .{beCast(zs.buf[i] + (@intCast(u32, zs.buf[i + 1]) << 8) + (@intCast(u32, zs.buf[i + 2]) << 16) + (@intCast(u32, zs.buf[i + 3]) << 24))});
                     i += 4;
+                },
+                0xD7 => {
+                    i += 1; // ext marker
+                    const d64: u64 = beCast(zs.buf[i] + (@intCast(u64, zs.buf[i + 1]) << 8) + (@intCast(u64, zs.buf[i + 2]) << 16) + (@intCast(u64, zs.buf[i + 3]) << 24) + (@intCast(u64, zs.buf[i + 4]) << 32) + (@intCast(u64, zs.buf[i + 5]) << 40) + (@intCast(u64, zs.buf[i + 6]) << 48) + (@intCast(u64, zs.buf[i + 7]) << 56));
+                    const ts = @bitCast(Timestamp64, d64);
+                    std.log.info("Timestamp64: {d}s {d}ns", .{ ts.seconds, ts.nanoseconds });
+                    i += 8;
                 },
                 0xD9 => {
                     const len: u8 = zs.buf[i];
@@ -569,10 +579,26 @@ const ZpackStream = struct {
 
         _ = try zs.reallocIfNeeded(zs.pos + 5);
 
-        zs.buf[zs.pos] = @intCast(u8, tag);
+        zs.buf[zs.pos] = tag;
         zs.pos += 1;
         _ = try zs.packU32(timestamp.seconds);
-        zs.buf[zs.pos - 5] = @intCast(u8, ext_tag);
+        zs.buf[zs.pos - 5] = ext_tag;
+
+        return 6;
+    }
+
+    pub fn packTimestamp64(zs: *ZpackStream, timestamp: Timestamp64) ZpackError!usize {
+        const tag: u8 = 0xD7;
+        const ext_tag: u8 = 0xFF;
+
+        _ = try zs.reallocIfNeeded(zs.pos + 5);
+
+        const d64 = @bitCast(u64, timestamp);
+
+        zs.buf[zs.pos] = tag;
+        zs.pos += 1;
+        _ = try zs.packU64(d64);
+        zs.buf[zs.pos - 9] = ext_tag;
 
         return 6;
     }
@@ -590,7 +616,8 @@ const ZpackStream = struct {
             .Int => |ti| blk: {
                 if (ti.signedness == .unsigned) {
                     break :blk switch (@as(u128, item)) {
-                        0x00...0xFF => try zs.packU8(@intCast(u8, item)),
+                        0x00...0x7F => try zs.packPosFixInt(@intCast(u7, item)),
+                        0x80...0xFF => try zs.packU8(@intCast(u8, item)),
                         0x100...0xFFFF => try zs.packU16(@intCast(u16, item)),
                         0x1_0000...0xFFFF_FFFF => try zs.packU32(@intCast(u32, item)),
                         0x1_0000_0000...0xFFFF_FFFF_FFFF_FFFF => try zs.packU64(@intCast(u64, item)),
